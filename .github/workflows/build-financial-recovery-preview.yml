@@ -1,0 +1,430 @@
+name: Build Financial Recovery Preview EXE
+
+on:
+  push:
+    branches:
+      - financial-recovery-build
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Windows preview project
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path preview-app | Out-Null
+
+          @'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <OutputType>WinExe</OutputType>
+              <TargetFramework>net8.0-windows</TargetFramework>
+              <UseWindowsForms>true</UseWindowsForms>
+              <ImplicitUsings>enable</ImplicitUsings>
+              <Nullable>enable</Nullable>
+              <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+              <SelfContained>true</SelfContained>
+              <PublishSingleFile>true</PublishSingleFile>
+              <PublishTrimmed>false</PublishTrimmed>
+              <AssemblyName>Financial-Recovery-Preview</AssemblyName>
+              <Product>Financial Recovery</Product>
+              <Version>0.1.1</Version>
+            </PropertyGroup>
+          </Project>
+          '@ | Set-Content -Encoding UTF8 preview-app/FinancialRecoveryPreview.csproj
+
+          @'
+          using System;
+          using System.Drawing;
+          using System.Windows.Forms;
+
+          namespace FinancialRecoveryPreview;
+
+          internal static class Program
+          {
+              [STAThread]
+              static void Main()
+              {
+                  Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+                  Application.EnableVisualStyles();
+                  Application.SetCompatibleTextRenderingDefault(false);
+                  Application.Run(new MainForm());
+              }
+          }
+
+          internal sealed class MainForm : Form
+          {
+              private readonly Color Bg = Color.FromArgb(12, 19, 32);
+              private readonly Color Sidebar = Color.FromArgb(8, 14, 24);
+              private readonly Color Panel = Color.FromArgb(17, 27, 44);
+              private readonly Color Soft = Color.FromArgb(22, 34, 53);
+              private readonly Color Border = Color.FromArgb(37, 52, 74);
+              private readonly Color TextMain = Color.FromArgb(237, 243, 251);
+              private readonly Color TextMuted = Color.FromArgb(151, 166, 186);
+              private readonly Color Accent = Color.FromArgb(131, 149, 255);
+              private readonly Color Good = Color.FromArgb(110, 215, 175);
+              private readonly Color Warning = Color.FromArgb(243, 183, 101);
+              private readonly Color Danger = Color.FromArgb(255, 140, 155);
+
+              private readonly Panel content = new() { Dock = DockStyle.Fill };
+              private readonly Label pageTitle = new();
+
+              public MainForm()
+              {
+                  Text = "Financial Recovery — Preview Desktop v0.1.1";
+                  StartPosition = FormStartPosition.CenterScreen;
+                  Width = 1440;
+                  Height = 900;
+                  MinimumSize = new Size(1080, 700);
+                  BackColor = Bg;
+                  ForeColor = TextMain;
+                  Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
+
+                  var shell = new TableLayoutPanel
+                  {
+                      Dock = DockStyle.Fill,
+                      ColumnCount = 2,
+                      RowCount = 1,
+                      BackColor = Bg,
+                      Padding = new Padding(0)
+                  };
+                  shell.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 236));
+                  shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                  Controls.Add(shell);
+
+                  shell.Controls.Add(BuildSidebar(), 0, 0);
+
+                  var main = new TableLayoutPanel
+                  {
+                      Dock = DockStyle.Fill,
+                      RowCount = 2,
+                      ColumnCount = 1,
+                      BackColor = Bg,
+                      Padding = new Padding(0)
+                  };
+                  main.RowStyles.Add(new RowStyle(SizeType.Absolute, 72));
+                  main.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+                  shell.Controls.Add(main, 1, 0);
+                  main.Controls.Add(BuildTopbar(), 0, 0);
+
+                  var contentHost = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Bg, Padding = new Padding(30, 26, 30, 30) };
+                  content.Dock = DockStyle.Top;
+                  content.AutoSize = true;
+                  content.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+                  content.BackColor = Bg;
+                  contentHost.Controls.Add(content);
+                  main.Controls.Add(contentHost, 0, 1);
+
+                  ShowDashboard();
+              }
+
+              private Control BuildSidebar()
+              {
+                  var side = new Panel { Dock = DockStyle.Fill, BackColor = Sidebar, Padding = new Padding(14, 20, 14, 16) };
+                  var logo = new Label
+                  {
+                      Text = "FR   Financial Recovery\n      Desktop Preview",
+                      ForeColor = Color.White,
+                      Font = new Font("Segoe UI Semibold", 12F),
+                      Dock = DockStyle.Top,
+                      Height = 62,
+                      Padding = new Padding(8, 5, 0, 0)
+                  };
+                  side.Controls.Add(logo);
+
+                  var nav = new FlowLayoutPanel
+                  {
+                      Dock = DockStyle.Top,
+                      Height = 580,
+                      FlowDirection = FlowDirection.TopDown,
+                      WrapContents = false,
+                      BackColor = Sidebar,
+                      Padding = new Padding(0, 14, 0, 0)
+                  };
+                  side.Controls.Add(nav);
+                  nav.BringToFront();
+
+                  AddNav(nav, "▣  Visão geral", ShowDashboard);
+                  AddNav(nav, "▤  Contas", () => ShowSimplePage("Contas", "Saldo consolidado", BuildAccounts));
+                  AddNav(nav, "↕  Transações", () => ShowSimplePage("Transações", "Últimas movimentações", BuildTransactions));
+                  AddNav(nav, "◆  Dívidas", () => ShowSimplePage("Central de dívidas", "Prioridade por custo e risco", BuildDebts));
+                  AddNav(nav, "◫  Orçamento", () => ShowTextPage("Orçamento", "Planejado x realizado", "Moradia     R$ 1.800 de R$ 1.900\nAlimentação R$ 1.080 de R$ 1.200\nTransporte  R$   620 de R$   700\nLazer       R$   310 de R$   450"));
+                  AddNav(nav, "◉  Simulador", ShowSimulator);
+                  AddNav(nav, "➜  Estratégia", ShowStrategy);
+                  AddNav(nav, "▦  Calendário", () => ShowTextPage("Calendário financeiro", "Próximos compromissos", "12 SET   Energia              R$ 238,90\n14 SET   Cartão Platinum     R$ 980,00\n16 SET   Internet            R$ 119,90\n20 SET   Financiamento       R$ 745,00"));
+                  AddNav(nav, "▤  Documentos", () => ShowTextPage("Documentos", "Importações financeiras", "OFX, CSV e relatório SCR entram nas próximas fases.\n\nNesta versão DEMO nenhuma integração bancária é simulada como real."));
+                  AddNav(nav, "⚙  Ajustes", () => ShowTextPage("Ajustes", "Preferências locais", "Ambiente: DEMO seguro\nTema: escuro\nDados: fictícios\nVersão: 0.1.1 Preview"));
+
+                  var env = new Label
+                  {
+                      Text = "●  Ambiente DEMO",
+                      ForeColor = Good,
+                      Dock = DockStyle.Bottom,
+                      Height = 36,
+                      TextAlign = ContentAlignment.MiddleLeft,
+                      Padding = new Padding(10, 0, 0, 0)
+                  };
+                  side.Controls.Add(env);
+                  return side;
+              }
+
+              private void AddNav(FlowLayoutPanel nav, string text, Action action)
+              {
+                  var button = new Button
+                  {
+                      Text = text,
+                      Width = 202,
+                      Height = 43,
+                      Margin = new Padding(0, 2, 0, 2),
+                      TextAlign = ContentAlignment.MiddleLeft,
+                      Padding = new Padding(12, 0, 0, 0),
+                      FlatStyle = FlatStyle.Flat,
+                      ForeColor = Color.FromArgb(190, 202, 219),
+                      BackColor = Sidebar,
+                      Cursor = Cursors.Hand,
+                      Font = new Font("Segoe UI", 10F)
+                  };
+                  button.FlatAppearance.BorderSize = 0;
+                  button.FlatAppearance.MouseOverBackColor = Color.FromArgb(28, 41, 64);
+                  button.Click += (_, _) => action();
+                  nav.Controls.Add(button);
+              }
+
+              private Control BuildTopbar()
+              {
+                  var top = new Panel { Dock = DockStyle.Fill, BackColor = Panel, Padding = new Padding(30, 10, 28, 10) };
+                  pageTitle.Text = "Visão geral";
+                  pageTitle.ForeColor = TextMain;
+                  pageTitle.Font = new Font("Segoe UI Semibold", 13F);
+                  pageTitle.AutoSize = true;
+                  pageTitle.Location = new Point(30, 25);
+                  top.Controls.Add(pageTitle);
+
+                  var user = new Label
+                  {
+                      Text = "JF    João Ferreira\n        Ambiente DEMO",
+                      ForeColor = TextMain,
+                      AutoSize = true,
+                      TextAlign = ContentAlignment.MiddleLeft,
+                      Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                      Location = new Point(1010, 17),
+                      Font = new Font("Segoe UI", 9.5F)
+                  };
+                  top.Controls.Add(user);
+                  top.Resize += (_, _) => user.Left = Math.Max(650, top.ClientSize.Width - user.Width - 28);
+                  return top;
+              }
+
+              private void ResetContent(string title)
+              {
+                  pageTitle.Text = title;
+                  content.SuspendLayout();
+                  content.Controls.Clear();
+                  content.Height = 760;
+                  content.Width = Math.Max(800, ClientSize.Width - 300);
+              }
+
+              private Label Heading(string eyebrow, string title, string subtitle)
+              {
+                  return new Label
+                  {
+                      AutoSize = false,
+                      Height = 90,
+                      Dock = DockStyle.Top,
+                      Text = $"{eyebrow.ToUpperInvariant()}\n{title}\n{subtitle}",
+                      ForeColor = TextMain,
+                      Font = new Font("Segoe UI Semibold", 13F),
+                      Padding = new Padding(0, 0, 0, 8)
+                  };
+              }
+
+              private Panel Card(string label, string value, string detail, Color? accent = null)
+              {
+                  var p = new Panel { Width = 260, Height = 104, BackColor = Panel, Margin = new Padding(0, 0, 14, 14), Padding = new Padding(17) };
+                  var l1 = new Label { Text = label.ToUpperInvariant(), ForeColor = TextMuted, AutoSize = true, Location = new Point(17, 14), Font = new Font("Segoe UI Semibold", 8F) };
+                  var l2 = new Label { Text = value, ForeColor = accent ?? TextMain, AutoSize = true, Location = new Point(17, 38), Font = new Font("Segoe UI Semibold", 18F) };
+                  var l3 = new Label { Text = detail, ForeColor = TextMuted, AutoSize = true, Location = new Point(17, 75), Font = new Font("Segoe UI", 8.5F) };
+                  p.Controls.AddRange(new Control[] { l1, l2, l3 });
+                  return p;
+              }
+
+              private Panel Section(string title, int height)
+              {
+                  var p = new Panel { Dock = DockStyle.Top, Height = height, BackColor = Panel, Margin = new Padding(0, 0, 0, 16), Padding = new Padding(20) };
+                  p.Controls.Add(new Label { Text = title, AutoSize = true, ForeColor = TextMain, Font = new Font("Segoe UI Semibold", 13F), Location = new Point(20, 17) });
+                  return p;
+              }
+
+              private void ShowDashboard()
+              {
+                  ResetContent("Visão geral");
+                  content.Controls.Add(Heading("VISÃO GERAL", "Olá, João", "Seu panorama financeiro está atualizado no modo demonstração."));
+
+                  var metrics = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 120, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, BackColor = Bg };
+                  metrics.Controls.Add(Card("Patrimônio", "R$ 18.420,00", "Saldo e reservas", Good));
+                  metrics.Controls.Add(Card("Dívida total", "R$ 22.710,00", "R$ 4.200 em atraso", Danger));
+                  metrics.Controls.Add(Card("Capacidade mensal", "R$ 1.880,00", "Após despesas atuais", Accent));
+                  metrics.Controls.Add(Card("Juros estimados", "R$ 991,60", "Custo aproximado/mês", Warning));
+                  content.Controls.Add(metrics);
+                  metrics.BringToFront();
+
+                  var health = Section("Saúde financeira                                      72 / 100", 168);
+                  health.Controls.Add(new Label
+                  {
+                      Text = "+12  Renda recorrente       +8  Reserva disponível\n−13  Dívida rotativa         −7  Comprometimento de renda\n\nA nota é explicável e reproduzível; não é uma caixa-preta.",
+                      ForeColor = TextMuted,
+                      AutoSize = true,
+                      Location = new Point(20, 54),
+                      Font = new Font("Segoe UI", 10F)
+                  });
+                  content.Controls.Add(health);
+                  health.BringToFront();
+
+                  var attention = Section("⚠  ATENÇÃO PRIORITÁRIA — Cartão Platinum", 142);
+                  attention.Controls.Add(new Label
+                  {
+                      Text = "Saldo: R$ 4.200,00     Parcela: R$ 980,00     Taxa: 14,60% ao mês     Atraso: 18 dias\n\nAção recomendada: interromper o crescimento do saldo e priorizar renegociação/quitação.",
+                      ForeColor = Danger,
+                      AutoSize = true,
+                      Location = new Point(20, 54),
+                      Font = new Font("Segoe UI", 10F)
+                  });
+                  content.Controls.Add(attention);
+                  attention.BringToFront();
+
+                  var debts = Section("Dívidas que mais exigem ação", 172);
+                  debts.Controls.Add(new Label
+                  {
+                      Text = "CRÍTICA   Cartão Platinum          R$ 4.200,00     14,60% a.m.\nALTA       Banco Horizonte          R$ 6.850,00      2,95% a.m.\nMÉDIA      Financeira Estrada       R$ 8.400,00      1,42% a.m.\nBAIXA      Loja Casa Nova           R$ 3.260,00      0,00% a.m.",
+                      ForeColor = TextMain,
+                      AutoSize = true,
+                      Location = new Point(20, 54),
+                      Font = new Font("Consolas", 10.5F)
+                  });
+                  content.Controls.Add(debts);
+                  debts.BringToFront();
+
+                  content.ResumeLayout();
+              }
+
+              private void ShowSimplePage(string title, string subtitle, Func<Control> builder)
+              {
+                  ResetContent(title);
+                  content.Controls.Add(Heading(title.ToUpperInvariant(), title, subtitle));
+                  var body = builder();
+                  body.Dock = DockStyle.Top;
+                  content.Controls.Add(body);
+                  body.BringToFront();
+                  content.ResumeLayout();
+              }
+
+              private void ShowTextPage(string title, string subtitle, string bodyText)
+              {
+                  ShowSimplePage(title, subtitle, () =>
+                  {
+                      var p = Section(title, 330);
+                      p.Controls.Add(new Label { Text = bodyText, ForeColor = TextMain, AutoSize = true, Location = new Point(22, 62), Font = new Font("Segoe UI", 12F) });
+                      return p;
+                  });
+              }
+
+              private Control BuildAccounts()
+              {
+                  var p = Section("Contas cadastradas", 280);
+                  p.Controls.Add(new Label
+                  {
+                      Text = "Banco Aurora        Conta corrente        R$ 6.840,00\nBanco Horizonte     Conta corrente        R$ 3.580,00\nCorretora Vertex    Investimentos         R$ 8.000,00",
+                      ForeColor = TextMain,
+                      AutoSize = true,
+                      Location = new Point(22, 62),
+                      Font = new Font("Consolas", 12F)
+                  });
+                  return p;
+              }
+
+              private Control BuildTransactions()
+              {
+                  var p = Section("Movimentações recentes", 320);
+                  p.Controls.Add(new Label
+                  {
+                      Text = "10/09   Salário                        + R$ 5.200,00\n10/09   Mercado Bom Dia                 − R$   286,40\n09/09   Energia                         − R$   238,90\n08/09   Combustível                     − R$   180,00\n07/09   Internet                        − R$   119,90",
+                      ForeColor = TextMain,
+                      AutoSize = true,
+                      Location = new Point(22, 62),
+                      Font = new Font("Consolas", 11F)
+                  });
+                  return p;
+              }
+
+              private Control BuildDebts()
+              {
+                  var p = Section("Prioridade transparente", 370);
+                  p.Controls.Add(new Label
+                  {
+                      Text = "CRÍTICA  Cartão Platinum\nSaldo: R$ 4.200,00 | Taxa: 14,60% a.m. | Atraso: 18 dias\nMotivo: maior custo mensal do portfólio.\n\nALTA     Banco Horizonte\nSaldo: R$ 6.850,00 | Taxa: 2,95% a.m.\nMotivo: custo relevante e parcela elevada.\n\nMÉDIA    Financeira Estrada\nSaldo: R$ 8.400,00 | Taxa: 1,42% a.m.\nMotivo: contrato mais barato e sem atraso.",
+                      ForeColor = TextMain,
+                      AutoSize = true,
+                      Location = new Point(22, 60),
+                      Font = new Font("Segoe UI", 11F)
+                  });
+                  return p;
+              }
+
+              private void ShowSimulator()
+              {
+                  ResetContent("Simulador");
+                  content.Controls.Add(Heading("SIMULADOR", "E se eu pagar um valor extra?", "Prévia determinística — valores demonstrativos."));
+                  var panel = Section("Pagamento extra", 360);
+
+                  var label = new Label { Text = "Valor extra neste mês (R$):", ForeColor = TextMuted, AutoSize = true, Location = new Point(24, 65) };
+                  var input = new TextBox { Text = "500", Width = 220, Location = new Point(24, 92), BackColor = Soft, ForeColor = TextMain, BorderStyle = BorderStyle.FixedSingle };
+                  var result = new Label { Text = "", ForeColor = Good, AutoSize = true, Location = new Point(24, 180), Font = new Font("Segoe UI Semibold", 12F) };
+                  var button = new Button { Text = "Calcular impacto", Width = 190, Height = 40, Location = new Point(260, 88), BackColor = Accent, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand };
+                  button.FlatAppearance.BorderSize = 0;
+                  button.Click += (_, _) =>
+                  {
+                      if (decimal.TryParse(input.Text.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var extra) && extra >= 0)
+                      {
+                          var saldo = 4200m;
+                          var novoSaldo = Math.Max(0, saldo - extra);
+                          var jurosAntes = saldo * 0.146m;
+                          var jurosDepois = novoSaldo * 0.146m;
+                          result.Text = $"Novo saldo estimado: R$ {novoSaldo:N2}\nRedução aproximada do próximo mês de juros: R$ {(jurosAntes - jurosDepois):N2}\n\nCálculo de preview; o motor Rust do projeto principal fará os cenários completos.";
+                      }
+                  };
+                  panel.Controls.AddRange(new Control[] { label, input, button, result });
+                  content.Controls.Add(panel);
+                  panel.BringToFront();
+                  content.ResumeLayout();
+              }
+
+              private void ShowStrategy()
+              {
+                  ShowTextPage("Estratégia", "Plano de recuperação", "PASSO 1 — Eliminar o saldo mais caro\nPriorizar Cartão Platinum (R$ 4.200,00) sem comprometer despesas essenciais.\n\nPASSO 2 — Banco Horizonte\nReavaliar CET, renegociação e eventual portabilidade.\n\nPASSO 3 — Manter contratos baratos em dia\nEvitar trocar parcela menor por custo total maior.\n\nObjetivo: minimizar juros totais e recuperar capacidade mensal de pagamento.");
+              }
+          }
+          '@ | Set-Content -Encoding UTF8 preview-app/Program.cs
+
+      - name: Publish portable Windows EXE
+        shell: pwsh
+        run: |
+          dotnet publish preview-app/FinancialRecoveryPreview.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o release
+          Get-ChildItem release
+
+      - name: Rename executable
+        shell: pwsh
+        run: |
+          Move-Item release/Financial-Recovery-Preview.exe release/Financial-Recovery-Portable-v0.1.1.exe
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: Financial-Recovery-Windows-EXE
+          path: release/Financial-Recovery-Portable-v0.1.1.exe
+          if-no-files-found: error
