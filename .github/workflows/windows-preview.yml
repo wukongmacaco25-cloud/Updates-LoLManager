@@ -1,0 +1,24 @@
+name: Windows Preview Builder
+
+on:
+  push:
+    branches:
+      - financial-recovery-build
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build preview executable
+        shell: pwsh
+        run: ./build-preview.ps1
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: Financial-Recovery-Windows-EXE
+          path: release/Financial-Recovery-Portable-v0.1.1.exe
+          if-no-files-found: error
